@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Лабораторная 6: Интерактивная 3D Буква</title>
+    <style>
+        :root {
+            --bg-color: #121212;
+            --panel-bg: #1e1e1e;
+            --text-color: #e0e0e0;
+            --accent-color: #bb86fc;
+            --border-color: #333;
+        }
+
+        /* ИСПРАВЛЕНИЕ: Удален overflow: hidden; */
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        h2 { font-weight: 300; letter-spacing: 1px; color: var(--accent-color); }
+
+        .layout {
+            display: grid;
+            grid-template-columns: 1fr 300px;
+            gap: 20px;
+            width: 100%;
+            max-width: 1200px;
+        }
+
+        .canvas-container {
+            display: grid;
+            gap: 15px;
+            grid-template-rows: 1fr auto;
+        }
+
+        .main-view {
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 10px;
+            position: relative;
+        }
+
+        /* Инструкция поверх канваса */
+        .overlay-hint {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 11px;
+            pointer-events: none;
+            color: #aaa;
+        }
+
+        canvas {
+            background: #000;
+            border-radius: 4px;
+            cursor: grab;
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+        
+        canvas:active { cursor: grabbing; }
+
+        .projections-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 10px;
+        }
+
+        .proj-card {
+            background: var(--panel-bg);
+            padding: 5px;
+            border-radius: 6px;
+            text-align: center;
+            border: 1px solid var(--border-color);
+        }
+        
+        .proj-title { font-size: 10px; color: #777; margin-bottom: 5px; text-transform: uppercase; }
+
+        /* Controls */
+        .controls {
+            background: var(--panel-bg);
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            height: fit-content;
+            max-height: 85vh;
+            overflow-y: auto;
+        }
+
+        .control-group { margin-bottom: 15px; border-bottom: 1px solid #333; padding-bottom: 10px; }
+        label { display: block; font-size: 12px; color: var(--accent-color); margin-bottom: 5px; font-weight: bold; }
+        
+        .val-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px; font-size: 12px; }
+        .val-row span { width: 15px; color: #777; }
+        
+        input[type="range"] { flex: 1; margin: 0 8px; accent-color: var(--accent-color); }
+        input[type="number"] { width: 45px; background: #222; border: 1px solid #444; color: #fff; border-radius: 3px; }
+
+        button {
+            width: 100%;
+            padding: 8px;
+            background: #333;
+            color: white;
+            border: 1px solid #555;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        button:hover { background: var(--accent-color); color: #000; }
+
+        .matrix-box {
+            font-family: 'Consolas', monospace;
+            font-size: 10px;
+            color: #0f0;
+            background: #050505;
+            padding: 8px;
+            border-radius: 4px;
+            white-space: pre;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+
+    <h2>Лабораторная работа №6: Интерактивная 3D Визуализация</h2>
+
+    <div class="layout">
+        <div class="canvas-container">
+            <div class="main-view">
+                <div class="overlay-hint">
+                    🖱️ <b>ЛКМ + Драг:</b> Вращение<br>
+                    🖱️ <b>Колесико:</b> Масштаб<br>
+                    (Shift + Колесико: Перенос Z)
+                </div>
+                <canvas id="mainCanvas" width="800" height="500"></canvas>
+            </div>
+
+            <div class="projections-row">
+                <div class="proj-card">
+                    <div class="proj-title">Oxy (Спереди)</div>
+                    <canvas id="xyCanvas" width="200" height="150"></canvas>
+                </div>
+                <div class="proj-card">
+                    <div class="proj-title">Oxz (Сверху)</div>
+                    <canvas id="xzCanvas" width="200" height="150"></canvas>
+                </div>
+                <div class="proj-card">
+                    <div class="proj-title">Oyz (Сбоку)</div>
+                    <canvas id="yzCanvas" width="200" height="150"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div class="controls">
+            <div class="control-group">
+                <label>Поворот (Мышь или Слайдеры)</label>
+                <div class="val-row"><span>X</span> <input type="range" id="rotX" min="-180" max="180" value="15"> <span id="valRotX">15</span></div>
+                <div class="val-row"><span>Y</span> <input type="range" id="rotY" min="-180" max="180" value="-30"> <span id="valRotY">-30</span></div>
+            </div>
+
+            <div class="control-group">
+                <label>Масштаб (Колесико)</label>
+                <div class="val-row"><span>S</span> <input type="range" id="scale" min="0.1" max="5.0" step="0.1" value="1.5"> <span id="valScale">1.5</span></div>
+            </div>
+
+            <div class="control-group">
+                <label>Перенос (Translation)</label>
+                <div class="val-row"><span>X</span> <input type="range" id="tx" min="-300" max="300" value="0"></div>
+                <div class="val-row"><span>Y</span> <input type="range" id="ty" min="-200" max="200" value="0"></div>
+                <div class="val-row"><span>Z</span> <input type="range" id="tz" min="-500" max="500" value="0"></div>
+            </div>
+
+            <div class="control-group">
+                <button onclick="resetCamera()">Сброс камеры</button>
+            </div>
+
+            <div class="control-group">
+                <label>Итоговая Матрица</label>
+                <div id="matrixOutput" class="matrix-box"></div>
+            </div>
+        </div>
+    </div>
+
+<script>
+/** * =========================================================
+ * 1. ГЕОМЕТРИЯ (Лаб 6а - Массив координат)
+ * =========================================================
+ */
+const model = { vertices: [], edges: [] };
+
+function generateGeometry() {
+    const segments = 40; // Высокая детализация для округлости
+    const R_outer = 120;
+    const R_inner = 80;
+    const depth = 40;
+    
+    // Буква С (дуга от 40 до 320 градусов)
+    const startRad = 40 * (Math.PI/180);
+    const endRad = 320 * (Math.PI/180);
+
+    for (let i = 0; i <= segments; i++) {
+        const t = i / segments;
+        const ang = startRad + t * (endRad - startRad);
+        const c = Math.cos(ang);
+        const s = Math.sin(ang);
+
+        // 4 точки на сечение (внеш/внут * перед/зад)
+        const idx = i * 4;
+        
+        // Поворачиваем букву так, чтобы "вырез" смотрел вправо (стандартная ориентация)
+        // Координаты: x, y, z
+        model.vertices.push({ x: c * R_outer, y: -s * R_outer, z: depth/2 });  // 0: Перед Внеш
+        model.vertices.push({ x: c * R_inner, y: -s * R_inner, z: depth/2 });  // 1: Перед Внут
+        model.vertices.push({ x: c * R_outer, y: -s * R_outer, z: -depth/2 }); // 2: Зад Внеш
+        model.vertices.push({ x: c * R_inner, y: -s * R_inner, z: -depth/2 }); // 3: Зад Внут
+
+        // Ребра внутри сечения
+        model.edges.push([idx, idx+1]);
+        model.edges.push([idx+2, idx+3]);
+        model.edges.push([idx, idx+2]);
+        model.edges.push([idx+1, idx+3]);
+
+        // Ребра между сечениями
+        if (i > 0) {
+            const p = (i-1)*4;
+            model.edges.push([p, idx]);     // Front Outer
+            model.edges.push([p+1, idx+1]); // Front Inner
+            model.edges.push([p+2, idx+2]); // Back Outer
+            model.edges.push([p+3, idx+3]); // Back Inner
+        }
+    }
+    
+    // Замыкание торцов (верхнего и нижнего)
+    const len = model.vertices.length;
+    // Верхний торец (начало)
+    model.edges.push([0, 2]); model.edges.push([1, 3]); // уже есть, добавляем диагональ или просто рамку
+    model.edges.push([0, 1]); model.edges.push([2, 3]);
+    // Нижний торец (конец)
+    model.edges.push([len-4, len-2]); model.edges.push([len-3, len-1]);
+    model.edges.push([len-4, len-3]); model.edges.push([len-2, len-1]);
+}
+generateGeometry();
+
+/**
+ * =========================================================
+ * 2. МАТЕМАТИКА (Лаб 6b - Матрицы 4x4)
+ * =========================================================
+ */
+class Matrix4 {
+    constructor() {
+        this.d = [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1];
+    }
+    
+    multiply(B) {
+        const A = this.d; const b = B.d;
+        const res = new Array(16).fill(0);
+        for(let r=0; r<4; r++){
+            for(let c=0; c<4; c++){
+                for(let k=0; k<4; k++){
+                    res[r*4+c] += A[r*4+k] * b[k*4+c];
+                }
+            }
+        }
+        this.d = res;
+        return this;
+    }
+
+    static translate(x, y, z) {
+        const m = new Matrix4();
+        m.d[3]=x; m.d[7]=y; m.d[11]=z;
+        return m;
+    }
+
+    static scale(s) {
+        const m = new Matrix4();
+        m.d[0]=s; m.d[5]=s; m.d[10]=s;
+        return m;
+    }
+
+    // Вращение вокруг X
+    static rotX(deg) {
+        const m = new Matrix4();
+        const rad = deg * Math.PI/180;
+        const c=Math.cos(rad), s=Math.sin(rad);
+        m.d[5]=c; m.d[6]=-s;
+        m.d[9]=s; m.d[10]=c;
+        return m;
+    }
+
+    // Вращение вокруг Y
+    static rotY(deg) {
+        const m = new Matrix4();
+        const rad = deg * Math.PI/180;
+        const c=Math.cos(rad), s=Math.sin(rad);
+        m.d[0]=c; m.d[2]=s;
+        m.d[8]=-s; m.d[10]=c;
+        return m;
+    }
+
+    transform(v) {
+        return {
+            x: this.d[0]*v.x + this.d[1]*v.y + this.d[2]*v.z + this.d[3],
+            y: this.d[4]*v.x + this.d[5]*v.y + this.d[6]*v.z + this.d[7],
+            z: this.d[8]*v.x + this.d[9]*v.y + this.d[10]*v.z + this.d[11]
+        };
+    }
+}
+
+/**
+ * =========================================================
+ * 3. ИНТЕРАКТИВНОСТЬ (Мышь)
+ * =========================================================
+ */
+const state = {
+    rotX: 15,
+    rotY: -30,
+    scale: 1.5,
+    tx: 0, ty: 0, tz: 0,
+    isDragging: false,
+    lastMouse: { x: 0, y: 0 }
+};
+
+const mainC = document.getElementById('mainCanvas');
+
+// Mouse Down
+mainC.addEventListener('mousedown', (e) => {
+    state.isDragging = true;
+    state.lastMouse = { x: e.clientX, y: e.clientY };
+});
+
+// Mouse Up/Leave
+window.addEventListener('mouseup', () => state.isDragging = false);
+
+// Mouse Move (Вращение)
+mainC.addEventListener('mousemove', (e) => {
+    if (!state.isDragging) return;
+    
+    const deltaX = e.clientX - state.lastMouse.x;
+    const deltaY = e.clientY - state.lastMouse.y;
+    
+    // Обновляем углы (чувствительность 0.5)
+    state.rotY += deltaX * 0.5;
+    state.rotX += deltaY * 0.5;
+
+    state.lastMouse = { x: e.clientX, y: e.clientY };
+    
+    // Синхронизация UI
+    updateUI();
+    render();
+});
+
+// Wheel (Зум)
+mainC.addEventListener('wheel', (e) => {
+    // ВАЖНО: e.preventDefault() предотвращает прокрутку СТРАНИЦЫ только когда курсор над канвасом
+    e.preventDefault(); 
+    const zoomSpeed = 0.1;
+    if (e.deltaY < 0) state.scale = Math.min(5, state.scale + zoomSpeed);
+    else state.scale = Math.max(0.1, state.scale - zoomSpeed);
+    
+    updateUI();
+    render();
+}, { passive: false });
+
+
+/**
+ * =========================================================
+ * 4. РЕНДЕРИНГ (Лаб 6c - Проекции)
+ * =========================================================
+ */
+const ctxMain = mainC.getContext('2d');
+const ctxXY = document.getElementById('xyCanvas').getContext('2d');
+const ctxXZ = document.getElementById('xzCanvas').getContext('2d');
+const ctxYZ = document.getElementById('yzCanvas').getContext('2d');
+
+function drawGrid(ctx, w, h, labels) {
+    ctx.clearRect(0,0,w,h);
+    // Grid
+    ctx.strokeStyle = '#222'; ctx.lineWidth = 1; ctx.beginPath();
+    ctx.moveTo(w/2, 0); ctx.lineTo(w/2, h);
+    ctx.moveTo(0, h/2); ctx.lineTo(w, h/2);
+    ctx.stroke();
+    // Labels
+    ctx.fillStyle = '#666'; ctx.font = '10px Arial';
+    ctx.fillText(labels[0], w-15, h/2-5);
+    ctx.fillText(labels[1], w/2+5, 10);
+}
+
+function render() {
+    // 1. Формирование матрицы трансформации
+    // Порядок: Scale -> RotateX -> RotateY -> Translate
+    const mS = Matrix4.scale(state.scale);
+    const mRx = Matrix4.rotX(state.rotX);
+    const mRy = Matrix4.rotY(state.rotY);
+    const mT = Matrix4.translate(state.tx, -state.ty, state.tz);
+
+    const mat = new Matrix4();
+    // Комбинируем вращение: Ry * Rx (порядок важен для "орбитального" ощущения)
+    const mRot = new Matrix4().multiply(mRy).multiply(mRx); 
+    
+    // Итоговая матрица (Лаб 6b): M = T * R * S
+    mat.multiply(mT).multiply(mRot).multiply(mS);
+
+    // 2. Вывод матрицы
+    let str = "";
+    for(let i=0; i<4; i++) {
+        str += `[${mat.d[i*4].toFixed(2).padStart(6)}, ${mat.d[i*4+1].toFixed(2).padStart(6)}, ${mat.d[i*4+2].toFixed(2).padStart(6)}, ${mat.d[i*4+3].toFixed(2).padStart(6)}]\n`;
+    }
+    document.getElementById('matrixOutput').innerText = str;
+
+    // 3. Трансформация вершин
+    const tVerts = model.vertices.map(v => mat.transform(v));
+
+    // 4. Отрисовка
+    // Подготовка
+    const w = mainC.width, h = mainC.height;
+    drawGrid(ctxMain, w, h, ['X','Y']);
+    drawGrid(ctxXY, 200, 150, ['X','Y']);
+    drawGrid(ctxXZ, 200, 150, ['X','Z']);
+    drawGrid(ctxYZ, 200, 150, ['Z','Y']);
+
+    const cx = w/2, cy = h/2;
+    const cxS = 100, cyS = 75; // Центры малых канвасов
+
+    // Рисование ребер
+    ctxMain.strokeStyle = '#bb86fc'; ctxMain.lineWidth = 1.5;
+    ctxXY.strokeStyle = '#ff5555';
+    ctxXZ.strokeStyle = '#55ff55';
+    ctxYZ.strokeStyle = '#5555ff';
+
+    model.edges.forEach(e => {
+        const v1 = tVerts[e[0]];
+        const v2 = tVerts[e[1]];
+
+        // --- 3D Main (Perspective) ---
+        // Простая перспектива: f/(f-z)
+        const f = 1000;
+        const p1 = f / (f - v1.z);
+        const p2 = f / (f - v2.z);
+        
+        ctxMain.beginPath();
+        ctxMain.moveTo(cx + v1.x * p1, cy - v1.y * p1);
+        ctxMain.lineTo(cx + v2.x * p2, cy - v2.y * p2);
+        ctxMain.stroke();
+
+        // --- Oxy (Лаб 6с) ---
+        ctxXY.beginPath();
+        ctxXY.moveTo(cxS + v1.x*0.5, cyS - v1.y*0.5);
+        ctxXY.lineTo(cxS + v2.x*0.5, cyS - v2.y*0.5);
+        ctxXY.stroke();
+
+        // --- Oxz (Лаб 6с) --- Z отображаем как Y на экране
+        ctxXZ.beginPath();
+        ctxXZ.moveTo(cxS + v1.x*0.5, cyS - v1.z*0.5); 
+        ctxXZ.lineTo(cxS + v2.x*0.5, cyS - v2.z*0.5);
+        ctxXZ.stroke();
+
+        // --- Oyz (Лаб 6с) --- Z как X, Y как Y
+        ctxYZ.beginPath();
+        ctxYZ.moveTo(cxS + v1.z*0.5, cyS - v1.y*0.5);
+        ctxYZ.lineTo(cxS + v2.z*0.5, cyS - v2.y*0.5);
+        ctxYZ.stroke();
+    });
+}
+
+// UI Helpers
+function updateUI() {
+    document.getElementById('rotX').value = state.rotX;
+    document.getElementById('rotY').value = state.rotY;
+    document.getElementById('valRotX').innerText = Math.round(state.rotX);
+    document.getElementById('valRotY').innerText = Math.round(state.rotY);
+    
+    document.getElementById('scale').value = state.scale;
+    document.getElementById('valScale').innerText = state.scale.toFixed(1);
+    
+    // Перенос (для корректного отображения значений)
+    document.getElementById('tx').value = state.tx;
+    document.getElementById('ty').value = state.ty;
+    document.getElementById('tz').value = state.tz;
+}
+
+// Event Listeners for Sliders (Manual Override)
+document.getElementById('rotX').oninput = (e) => { state.rotX = parseFloat(e.target.value); render(); updateUI(); };
+document.getElementById('rotY').oninput = (e) => { state.rotY = parseFloat(e.target.value); render(); updateUI(); };
+document.getElementById('scale').oninput = (e) => { state.scale = parseFloat(e.target.value); render(); updateUI(); };
+// Обработчики переноса также обновляют state, но ползунки не надо синхронизировать
+document.getElementById('tx').oninput = (e) => { state.tx = parseFloat(e.target.value); render(); };
+document.getElementById('ty').oninput = (e) => { state.ty = parseFloat(e.target.value); render(); };
+document.getElementById('tz').oninput = (e) => { state.tz = parseFloat(e.target.value); render(); };
+
+function resetCamera() {
+    state.rotX = 15; state.rotY = -30;
+    state.scale = 1.5;
+    state.tx = 0; state.ty = 0; state.tz = 0;
+    updateUI();
+    render();
+}
+
+// Init
+updateUI();
+render();
+
+</script>
+</body>
+</html>
